@@ -3,50 +3,54 @@
 # WheelWizard macOS Build Script
 # =============================================================================
 # Builds WheelWizard for macOS and creates a .app bundle.
-# Works on macOS, Linux, and Windows (Git Bash / MSYS2).
+# Designed to run on macOS CI runners (GitHub Actions).
 #
-# Environment variables (optional):
-#   BUILD_ARCH   - Target architecture: "arm64" or "x64" (default: auto-detect)
-#   SKIP_BUILD   - Set to "true" to skip the dotnet build step
+# Environment variables:
+#   BUILD_ARCH   - "arm64" or "x64" (default: auto-detect)
+#   SKIP_BUILD   - Set to "true" to skip dotnet build
 #   OUTPUT_DIR   - Output directory (default: ./release)
-#   APP_VERSION  - Version string (default: from csproj or "dev")
 #
 # No codesigning, no notarization, no DMG creation.
+# DMG is created by the GitHub Actions workflow using create-dmg action.
 # =============================================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WW_DIR="$SCRIPT_DIR"
-MAC_DIRS="$SCRIPT_DIR/MacAppTemplate"
-DEFAULT_OUTPUT="$SCRIPT_DIR/release"
+MACOS_DIR="$SCRIPT_DIR"
+WW_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+MAC_DIRS="$MACOS_DIR/MacAppTemplate"
+DEFAULT_OUTPUT="$WW_DIR/release"
 
-# ---- Detect architecture ----
-ARCH="$(uname -m)"
-case "$ARCH" in
-    arm64|aarch64) DEFAULT_BUILD_ARCH="arm64" ;;
-    x86_64|amd64)  DEFAULT_BUILD_ARCH="x64" ;;
-    *)             DEFAULT_BUILD_ARCH="x64" ;;
+# ---- Detect host architecture ----
+HOST_ARCH="$(uname -m)"
+case "$HOST_ARCH" in
+    arm64|aarch64) HOST_BUILD_ARCH="arm64" ;;
+    x86_64|amd64)  HOST_BUILD_ARCH="x64" ;;
+    *)             HOST_BUILD_ARCH="x64" ;;
 esac
 
-BUILD_ARCH="${BUILD_ARCH:-$DEFAULT_BUILD_ARCH}"
+# Use BUILD_ARCH if set, otherwise default to host architecture
+BUILD_ARCH="${BUILD_ARCH:-$HOST_BUILD_ARCH}"
 RID="osx-$BUILD_ARCH"
 OUTPUT_DIR="${OUTPUT_DIR:-$DEFAULT_OUTPUT}"
 
+echo "[INFO] Host architecture: $HOST_BUILD_ARCH"
 echo "[INFO] Building for RID: $RID (arch: $BUILD_ARCH)"
 echo "[INFO] Output: $OUTPUT_DIR"
 
-mkdir -p "$OUTPUT_DIR"
-
-# ---- Extract version from csproj ----
-if [ -z "${APP_VERSION:-}" ]; then
-    if [ -f "$WW_DIR/WheelWizard/WheelWizard.csproj" ]; then
-        APP_VERSION=$(grep -oP '<Version>\K[^<]+' "$WW_DIR/WheelWizard/WheelWizard.csproj" || echo "dev")
-    else
-        APP_VERSION="dev"
-    fi
+# If cross-compiling (e.g., building x64 on arm64 host), set the appropriate architecture flag
+if [ "$BUILD_ARCH" != "$HOST_BUILD_ARCH" ]; then
+    echo "[INFO] Cross-compiling: $HOST_BUILD_ARCH -> $BUILD_ARCH"
+    case "$BUILD_ARCH" in
+        x64)  ARCH_FLAG="-arch x86_64" ;;
+        arm64) ARCH_FLAG="-arch arm64" ;;
+    esac
+else
+    ARCH_FLAG=""
 fi
-echo "[INFO] App version: $APP_VERSION"
+
+mkdir -p "$OUTPUT_DIR"
 
 # =============================================================================
 # STEP 1: Build

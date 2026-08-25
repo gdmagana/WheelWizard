@@ -15,7 +15,7 @@ public static class Endpoints
     /// <summary>
     /// The base address for accessing the GameBanana API
     /// </summary>
-    public const string GameBananaBaseAddress = "https://gamebanana.com/apiv11";
+    public const string GameBananaBaseAddress = "https://gamebanana.com/apiv12";
 
     /// <summary>
     /// The address for the GitHub API
@@ -35,7 +35,6 @@ public static class Endpoints
     // Retro Rewind
     public const string OldRRUrl = "http://update.rwfc.net:8000/";
     public const string RRUrl = "https://update.rwfc.net/";
-    public const string RRZipUrl = RRUrl + "RetroRewind/zip/RetroRewind.zip";
     public const string RRTestersZipUrl = RRUrl + "RetroRewind/zip/Testers.zip";
     public const string RRVersionUrl = RRUrl + "RetroRewind/RetroRewindVersion.txt";
     public const string RRVersionDeleteUrl = RRUrl + "RetroRewind/RetroRewindDelete.txt";
@@ -48,7 +47,4 @@ public static class Endpoints
 
     // Other
     public const string MiiChannelWAD = "-";
-
-    //GameBanana
-    public const string GameBananaBaseUrl = "https://gamebanana.com/apiv11";
 }

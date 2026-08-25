@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
+using Serilog;
 using WheelWizard.Helpers;
 using WheelWizard.Settings;
 #if WINDOWS
@@ -79,9 +81,41 @@ public static class PathManager
     public static string RrBetaManifestFilePath => Path.Combine(WheelWizardAppdataPath, "RRBeta.manifest.json");
     public static string MiiRenderingFolderPath => Path.Combine(WheelWizardAppdataPath, "MiiRendering");
     public static string MiiRenderingResourceFilePath => Path.Combine(MiiRenderingFolderPath, "FFLResHigh.dat");
+
+    // WiiCompiled is portable: <RecompFolderPath> is the portable root the backend owns
+    // (portable.txt, Install\, UserData\), so the whole product travels with Wheel Wizard's data directory.
+    public static string RecompFolderPath => Path.Combine(WheelWizardAppdataPath, "Recomp");
+
+    /// <summary>The portable install directory inside the recomp's portable root.</summary>
+    public static string PortableRecompInstallFolderPath => Path.Combine(RecompFolderPath, "Install");
+
+    /// <summary>The backend install directory inside Wheel Wizard's portable recomp root.</summary>
+    public static string RecompInstallFolderPath => PortableRecompInstallFolderPath;
+
+    /// <summary>Whether the recomp uses the portable layout, which is what earns the setup's <c>--portable</c> flag.</summary>
+    public static bool IsRecompInstallPortable => true;
+
+    public static string RecompCacheFolderPath => Path.Combine(RecompFolderPath, "Cache");
+    public static string RecompInstallStateFilePath => Path.Combine(RecompInstallFolderPath, RecompInstallStateFileName);
+    public static string RecompSetupFilePath => Path.Combine(RecompInstallFolderPath, "WiiCompiled-Setup.exe");
+
+    /// <summary>The backend-owned runtime user state (Config.toml, private NAND, caches) inside the portable root.</summary>
+    public static string RecompUserDataFolderPath => Path.Combine(RecompFolderPath, "UserData");
+
+    /// <summary>The recomp's own settings file, shared between Wheel Wizard and the in-game settings bar.</summary>
+    public static string RecompConfigFilePath => Path.Combine(RecompUserDataFolderPath, "Config.toml");
+
+    /// <summary>The Wheel Wizard-owned copy of the Dolphin NAND, used when the user chose copying over sharing it in place.</summary>
+    public static string RecompNandCopyFolderPath => Path.Combine(RecompFolderPath, "Nand");
+
+    /// <summary>The marker file whose presence makes <see cref="RecompFolderPath"/> a portable root.</summary>
+    public static string RecompPortableMarkerFilePath => Path.Combine(RecompFolderPath, "portable.txt");
     public static string WiiDbFolder => Path.Combine(WiiFolderPath, "shared2", "menu", "FaceLib");
     public static string MiiDbFile => Path.Combine(WiiDbFolder, "RFL_DB.dat");
     public static string RRratingFilePath => Path.Combine(WiiFolderPath, "shared2", "Pulsar", "RetroRewind6", "RRRating.pul");
+
+    /// <summary>The file the recomp setup writes to mark a directory as one of its installations.</summary>
+    public const string RecompInstallStateFileName = "install-state.json";
 
     #region Wheel Wizard Appdata Override
 
@@ -531,9 +565,21 @@ public static class PathManager
 
     public static string GetModDirectoryPath(string modName) => Path.Combine(ModsFolderPath, modName);
 
-    public static string RiivolutionWhWzFolderPath => Path.Combine(LoadFolderPath, "Riivolution", "WheelWizard");
+    // Retro Rewind lives in Dolphin's Load folder so Riivolution can find it. Recomp-only setups
+    // have no Dolphin user folder, so the package falls back to a Wheel Wizard-owned location; both
+    // frontends read this same property, so they always share one installation.
+    public static string RiivolutionWhWzFolderPath
+    {
+        get
+        {
+            if (Settings.LOAD_PATH.IsValid() || !string.IsNullOrWhiteSpace(UserFolderPath))
+                return Path.Combine(LoadFolderPath, "Riivolution", "WheelWizard");
 
-    // public static string RetroRewind6FolderPath => Path.Combine(RiivolutionWhWzFolderPath, "RetroRewind6");
+            return Path.Combine(WheelWizardAppdataPath, "RetroRewind");
+        }
+    }
+
+    public static string RetroRewind6FolderPath => Path.Combine(RiivolutionWhWzFolderPath, "RetroRewind6");
 
     // This is not the folder your save file is located in, but its the folder where every Region folder is, so the save file is in SaveFolderPath/Region
     public static string SaveFolderPath => Path.Combine(RiivolutionWhWzFolderPath, "riivolution", "save", "RetroWFC");
@@ -603,7 +649,7 @@ public static class PathManager
     {
         get
         {
-            if (IsFlatpakDolphinFilePath())
+            if (IsFlatpakDolphinFilePath(DolphinFilePath))
             {
                 if (LinuxDolphinFlatpakDataDir.Equals(Path.GetFullPath(UserFolderPath), StringComparison.Ordinal))
                     return LinuxDolphinFlatpakConfigDir;
@@ -675,28 +721,23 @@ public static class PathManager
             // Prioritize Flatpak Dolphin installation if no file path has been saved yet, so return true
             return true;
         }
+        // Because we need this prefix for the permission workarounds, we just expect it to start with "flatpak run"
         var flatpakRunCommand = "flatpak run";
-        var dolphinAppId = "org.DolphinEmu.dolphin-emu";
-        string[] possibleFlatpakDolphinCommands =
-        [
-            $"{flatpakRunCommand} {dolphinAppId}",
-            $"{flatpakRunCommand} --system {dolphinAppId}",
-            $"{flatpakRunCommand} --user {dolphinAppId}",
-            $"{flatpakRunCommand} -p {dolphinAppId}",
-            $"{flatpakRunCommand} --system -p {dolphinAppId}",
-            $"{flatpakRunCommand} --user -p {dolphinAppId}",
-        ];
-        foreach (var possibleFlatpakDolphinCommand in possibleFlatpakDolphinCommands)
-        {
-            if (possibleFlatpakDolphinCommand.Equals(filePath, StringComparison.Ordinal))
-                return true;
-        }
-        return false;
+        return filePath.StartsWith(flatpakRunCommand, StringComparison.Ordinal);
     }
 
-    public static bool IsFlatpakDolphinFilePath()
+    public const string DefaultDolphinFlatpakAppId = "org.DolphinEmu.dolphin-emu";
+
+    /// <summary>
+    /// Pulls the app ID out of a "flatpak run ..." command, so custom or forked Dolphin Flatpaks keep working.
+    /// </summary>
+    public static string ExtractDolphinFlatpakAppId(string flatpakDolphinLocation)
     {
-        return IsFlatpakDolphinFilePath(DolphinFilePath);
+        if (string.IsNullOrWhiteSpace(flatpakDolphinLocation))
+            return DefaultDolphinFlatpakAppId;
+
+        var matches = Regex.Matches(flatpakDolphinLocation, @"(?i)\b[a-z][a-z0-9]*(?:\.[a-z_][a-z0-9_]*){1,}\.[a-z_][a-z0-9_-]*\b");
+        return matches.Count == 0 ? DefaultDolphinFlatpakAppId : matches[^1].Value;
     }
 
     private static string GetContainingBaseDirectorySafe(string path)
@@ -849,7 +890,9 @@ public static class PathManager
         return null;
     }
 
-    public static string? TryFindUserFolderPath()
+    public static string? TryFindUserFolderPath() => TryFindUserFolderPath(DolphinFilePath);
+
+    public static string? TryFindUserFolderPath(string dolphinFilePath)
     {
         var portableUserFolderPath = TryFindPortableUserFolderPath();
         if (!string.IsNullOrWhiteSpace(portableUserFolderPath))
@@ -880,7 +923,7 @@ public static class PathManager
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
-            if (IsFlatpakDolphinFilePath())
+            if (IsFlatpakDolphinFilePath(dolphinFilePath))
             {
                 return TryFindLinuxFlatpakUserFolderPath();
             }

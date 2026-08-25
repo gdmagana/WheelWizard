@@ -110,28 +110,28 @@ public class SettingsManagerTests
     [Fact]
     public void LoadSettings_CallsUnderlyingManagersOnlyOnce()
     {
-        var manager = CreateManager(new MockFileSystem(), out var whWzManager, out var dolphinManager, out _);
+        var manager = CreateManager(new MockFileSystem(), out var whWzManager, out var dolphinManager, out var recompManager);
 
         manager.LoadSettings();
         manager.LoadSettings();
 
         whWzManager.Received(1).LoadSettings();
         dolphinManager.Received(1).LoadSettings();
+        recompManager.Received(1).LoadSettings();
     }
 
     private static SettingsManager CreateManager(
         IFileSystem fileSystem,
         out IWhWzSettingManager whWzSettingManager,
         out IDolphinSettingManager dolphinSettingManager,
-        out ILinuxDolphinInstaller linuxDolphinInstaller
+        out IRecompSettingManager recompSettingManager
     )
     {
         whWzSettingManager = Substitute.For<IWhWzSettingManager>();
         dolphinSettingManager = Substitute.For<IDolphinSettingManager>();
-        linuxDolphinInstaller = Substitute.For<ILinuxDolphinInstaller>();
-        linuxDolphinInstaller.IsDolphinInstalledInFlatpak().Returns(true);
+        recompSettingManager = Substitute.For<IRecompSettingManager>();
 
-        return new SettingsManager(whWzSettingManager, dolphinSettingManager, linuxDolphinInstaller, fileSystem);
+        return new SettingsManager(whWzSettingManager, dolphinSettingManager, recompSettingManager, fileSystem);
     }
 }
 
